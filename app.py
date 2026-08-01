@@ -40,7 +40,7 @@ st.markdown(
 @st.cache_resource
 def load_model():
   try:
-    return joblib.load("../models/churn_model.pkl")
+    return joblib.load("models/churn_model.pkl")
   except Exception as e:
     return None
 

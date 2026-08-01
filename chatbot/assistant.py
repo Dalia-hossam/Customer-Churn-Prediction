@@ -109,9 +109,15 @@ USER QUESTION
             return answer
 
         except Exception as e:
-            raise GeminiError(
-                f"Gemini API Error: {e}"
-            ) from e
+            error_msg = str(e)
+            
+            # معالجة أشهر الأخطاء بدون إيقاف الشات
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower():
+                return "⚠️ **Quota Exceeded:** You have reached the Gemini API rate limit. Please try again in a minute or supply a new API key."
+            elif "API_KEY_INVALID" in error_msg or "400" in error_msg:
+                return f"⚠️ **API Key Error:** Invalid API Key in Streamlit Secrets. Details: `{error_msg}`"
+            else:
+                return f"⚠️ **Gemini API Error:** `{error_msg}`"
 
     def clear_memory(self):
         self.memory.clear()

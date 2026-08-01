@@ -554,8 +554,17 @@ elif page == "🧍 Single Customer":
                 action_cols = st.columns(4)
                 triggered_action = None
 
+                # --- تحديد النص والسؤال بناءً على حالة العميل وبدقة ---
+                current_risk = result['risk_level']
+                if current_risk in ["High", "Very High"]:
+                    explain_prompt = f"Explain why this customer is at {current_risk.lower()} risk of churn."
+                elif current_risk == "Medium":
+                    explain_prompt = "Explain the potential risk factors for this medium-risk customer."
+                else:
+                    explain_prompt = "Explain why this customer is classified as low risk and likely to stay."
+
                 if action_cols[0].button("💡 Explain", use_container_width=True):
-                    triggered_action = (Action.EXPLAIN, "Explain why this customer is at risk.")
+                    triggered_action = (Action.EXPLAIN, explain_prompt)
                 if action_cols[1].button("📋 Summary", use_container_width=True):
                     triggered_action = (Action.SUMMARY, "Generate an executive summary.")
                 if action_cols[2].button("🛡️ Retention", use_container_width=True):

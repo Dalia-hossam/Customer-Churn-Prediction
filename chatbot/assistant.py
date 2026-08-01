@@ -1,8 +1,13 @@
-from google import genai
+# دعم التوافق مع المكتبتين (الجديدة google-genai والقديمة google-generativeai)
+GENAI_SDK_V2 = False
+try:
+    from google import genai
+    GENAI_SDK_V2 = True
+except ImportError:
+    import google.generativeai as genai
 
 from chatbot.actions import Action
-from chatbot.config import DEFAULT_MODEL
-from chatbot.config import GEMINI_API_KEY
+from chatbot.config import DEFAULT_MODEL, GEMINI_API_KEY
 from chatbot.context import build_customer_context
 from chatbot.exceptions import GeminiError
 from chatbot.memory import ChatMemory
@@ -18,14 +23,18 @@ class ChurnAssistant:
         self,
         model_name: str = DEFAULT_MODEL,
     ):
-
-        self.client = genai.Client(
-            api_key=GEMINI_API_KEY
-        )
+        if not GEMINI_API_KEY:
+            raise GeminiError("GEMINI_API_KEY is missing from environment or st.secrets")
 
         self.model_name = model_name
-
         self.memory = ChatMemory()
+
+        # تهيئة العميل بناءً على المكتبة المثبتة في السيرفر
+        if GENAI_SDK_V2:
+            self.client = genai.Client(api_key=GEMINI_API_KEY)
+        else:
+            genai.configure(api_key=GEMINI_API_KEY)
+            self.client = genai.GenerativeModel(self.model_name)
 
     def ask(
         self,
@@ -81,11 +90,14 @@ USER QUESTION
 """
 
         try:
-
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-            )
+            # التوليد بحسب المكتبة
+            if GENAI_SDK_V2:
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                )
+            else:
+                response = self.client.generate_content(prompt)
 
             answer = response.text.strip()
 
@@ -97,11 +109,9 @@ USER QUESTION
             return answer
 
         except Exception as e:
-
             raise GeminiError(
                 f"Gemini API Error: {e}"
             ) from e
 
     def clear_memory(self):
-
         self.memory.clear()

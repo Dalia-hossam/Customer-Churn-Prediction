@@ -16,4 +16,4 @@ if not GEMINI_API_KEY:
     except Exception:
         pass
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.5-flash"

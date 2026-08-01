@@ -23,13 +23,15 @@ from churn_core import (  # noqa: E402
     CATEGORICAL_OPTIONS as _FALLBACK_CATEGORICAL_OPTIONS,
 )
 
-# Chatbot imports
+# Chatbot imports - مع التقاط سبب الخطأ بدقة
+CHATBOT_AVAILABLE = False
+CHATBOT_IMPORT_ERROR = None
+
 try:
     from chatbot.assistant import ChurnAssistant
     from chatbot.actions import Action
     CHATBOT_AVAILABLE = True
 except Exception as e:
-    CHATBOT_AVAILABLE = False
     CHATBOT_IMPORT_ERROR = str(e)
 
 
@@ -197,13 +199,14 @@ st.markdown(THEME_CSS, unsafe_allow_html=True)
 def get_predictor() -> ChurnPredictor:
     return ChurnPredictor()
 
-def get_assistant() -> ChurnAssistant | None:
+def get_assistant():
+    global CHATBOT_IMPORT_ERROR
     if not CHATBOT_AVAILABLE:
         return None
     try:
         return ChurnAssistant()
     except Exception as e:
-        st.sidebar.warning(f"⚠️ Chatbot unavailable: {e}")
+        CHATBOT_IMPORT_ERROR = str(e)
         return None
 
 # Session state initialization
@@ -283,7 +286,7 @@ if load_error:
         "⚠️ Could not load the model artifacts.\n\n"
         f"**Details:** {load_error}\n\n"
         "Check that `model/` contains all required files and that "
-        "`requirements.txt` is fully installed (including `imbalanced-learn`)."
+        "`requirements.txt` is fully installed."
     )
     st.stop()
 
@@ -294,7 +297,7 @@ NUMERIC_RANGES = predictor.schema["numeric_ranges"] or _FALLBACK_NUMERIC_RANGES
 
 
 # ---------------------------------------------------------------------------
-# PAGE: Dashboard (CSV upload or Demo Data)
+# PAGE: Dashboard
 # ---------------------------------------------------------------------------
 if page == "📊 Dashboard":
     st.markdown(
@@ -349,8 +352,7 @@ if page == "📊 Dashboard":
             """
             <div class="empty-state">
                 <b>No data source selected.</b><br/>
-                Upload a CSV file or switch to <b>Use Demo Data</b> from above
-                to see churn rate, risk segments, and high-risk accounts.
+                Upload a CSV file or switch to <b>Use Demo Data</b> from above.
             </div>
             """,
             unsafe_allow_html=True,
@@ -513,7 +515,6 @@ elif page == "🧍 Single Customer":
             }
             result = predictor.predict_one(record)
 
-            # Reset chat states upon a new prediction run
             st.session_state.last_scored_customer = record
             st.session_state.last_scored_prediction = result
             st.session_state.last_response = None
@@ -547,9 +548,9 @@ elif page == "🧍 Single Customer":
             st.markdown('<div class="section-title">🤖 AI Churn Assistant</div>', unsafe_allow_html=True)
 
             if not assistant:
-                st.warning("⚠️ AI Assistant is unavailable. Please check your `.env` configuration for `GEMINI_API_KEY`.")
+                # طباعة سبب الخطأ الدقيق للمساعدة في تصحيحه مباشرة
+                st.warning(f"⚠️ AI Assistant is unavailable.\n\n**Error Details:** `{CHATBOT_IMPORT_ERROR}`")
             else:
-                # Preset action buttons
                 action_cols = st.columns(4)
                 triggered_action = None
 
@@ -562,7 +563,6 @@ elif page == "🧍 Single Customer":
                 if action_cols[3].button("✉️ Draft Email", use_container_width=True):
                     triggered_action = (Action.EMAIL, "Draft a personalized retention email.")
 
-                # Execute action if button was clicked
                 if triggered_action:
                     act_type, prompt_label = triggered_action
                     with st.spinner("Assistant thinking..."):
@@ -575,7 +575,6 @@ elif page == "🧍 Single Customer":
                         st.session_state.last_query = prompt_label
                         st.session_state.last_response = response_text
 
-                # Handle chat input text box
                 user_question = st.chat_input("Ask the AI assistant about this customer...")
                 if user_question:
                     with st.spinner("Thinking..."):
@@ -588,7 +587,6 @@ elif page == "🧍 Single Customer":
                         st.session_state.last_query = user_question
                         st.session_state.last_response = response_text
 
-                # Display ONLY the latest output cleanly
                 if st.session_state.last_response:
                     with st.chat_message("user"):
                         st.markdown(st.session_state.last_query)

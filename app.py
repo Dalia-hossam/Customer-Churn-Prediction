@@ -1,5 +1,5 @@
 """
-Customer Churn Intelligence — Streamlit app.
+Customer Churn Intelligence — Streamlit app with AI Assistant Integration.
 
 Run with: streamlit run streamlit_app/app.py
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-# Make churn_core importable regardless of where streamlit is launched from.
+# Make churn_core and chatbot importable regardless of launch location
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -22,6 +22,16 @@ from churn_core import (  # noqa: E402
     NUMERIC_RANGES as _FALLBACK_NUMERIC_RANGES,
     CATEGORICAL_OPTIONS as _FALLBACK_CATEGORICAL_OPTIONS,
 )
+
+# Chatbot imports
+try:
+    from chatbot.assistant import ChurnAssistant
+    from chatbot.actions import Action
+    CHATBOT_AVAILABLE = True
+except Exception as e:
+    CHATBOT_AVAILABLE = False
+    CHATBOT_IMPORT_ERROR = str(e)
+
 
 # ---------------------------------------------------------------------------
 # Page config + theme
@@ -38,11 +48,11 @@ THEME_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap');
 
 :root {
-    --bg: #0B1118;            /* خلفية عامة أغمق وأكثر احترافية */
-    --surface: #141D2B;       /* خلفية الكروت والعناصر الداكنة */
-    --text: #F0F4F8;          /* لون النصوص الأساسية فاتح وواضح */
-    --text-soft: #94A3B8;     /* لون النصوص الفرعية */
-    --border: #1E293B;        /* حدود العناصر */
+    --bg: #0B1118;            /* Dark background */
+    --surface: #141D2B;       /* Card surface background */
+    --text: #F0F4F8;          /* Light text */
+    --text-soft: #94A3B8;     /* Subtitle text */
+    --border: #1E293B;        /* Element borders */
     --accent: #0EA5A4;
     --accent-dark: #0B7F7E;
     --risk-very-high: #DC2626;
@@ -56,7 +66,7 @@ h1, h2, h3, .churn-display { font-family: 'Sora', sans-serif; letter-spacing: -0
 
 .stApp { background-color: var(--bg); }
 
-/* --- إصلاح حقول الإدخال والقوائم لتكون واضحة وبدون تداخل --- */
+/* --- Inputs and forms --- */
 .stTextInput input, .stNumberInput input {
     background-color: var(--surface) !important;
     color: var(--text) !important;
@@ -181,11 +191,30 @@ st.markdown(THEME_CSS, unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
-# Cached resources
+# Cached resources & Assistant Initialization
 # ---------------------------------------------------------------------------
 @st.cache_resource(show_spinner="Loading model…")
 def get_predictor() -> ChurnPredictor:
     return ChurnPredictor()
+
+def get_assistant() -> ChurnAssistant | None:
+    if not CHATBOT_AVAILABLE:
+        return None
+    try:
+        return ChurnAssistant()
+    except Exception as e:
+        st.sidebar.warning(f"⚠️ Chatbot unavailable: {e}")
+        return None
+
+# Session state initialization
+if "last_response" not in st.session_state:
+    st.session_state.last_response = None
+if "last_query" not in st.session_state:
+    st.session_state.last_query = None
+if "last_scored_customer" not in st.session_state:
+    st.session_state.last_scored_customer = None
+if "last_scored_prediction" not in st.session_state:
+    st.session_state.last_scored_prediction = None
 
 
 def risk_badge_html(risk: str) -> str:
@@ -232,7 +261,7 @@ st.sidebar.markdown(
     "<div style='font-family:Sora,sans-serif;font-weight:700;font-size:20px;"
     "color:#fff;padding:4px 0 2px 0;'>📶 Churn Intelligence</div>"
     "<div style='color:#8B94A3;font-size:12px;margin-bottom:20px;'>"
-    "Logistic Regression + ADASYN</div>",
+    "Logistic Regression + ADASYN + AI Assistant</div>",
     unsafe_allow_html=True,
 )
 
@@ -257,6 +286,8 @@ if load_error:
         "`requirements.txt` is fully installed (including `imbalanced-learn`)."
     )
     st.stop()
+
+assistant = get_assistant()
 
 CATEGORICAL_OPTIONS = predictor.schema["categorical_options"] or _FALLBACK_CATEGORICAL_OPTIONS
 NUMERIC_RANGES = predictor.schema["numeric_ranges"] or _FALLBACK_NUMERIC_RANGES
@@ -299,7 +330,6 @@ if page == "📊 Dashboard":
     raw_df = None
 
     if data_source_mode == "Use Demo Data":
-        # إنشاء بيانات تجريبية افتراضية في حال اختيار وضع العرض التوضيحي
         demo_data = [
             {"gender": "Female", "SeniorCitizen": 0, "Partner": "Yes", "Dependents": "No", "tenure": 5, "PhoneService": "Yes", "MultipleLines": "No", "InternetService": "Fiber optic", "OnlineSecurity": "No", "OnlineBackup": "No", "DeviceProtection": "No", "TechSupport": "No", "StreamingTV": "No", "StreamingMovies": "No", "Contract": "Month-to-month", "PaperlessBilling": "Yes", "PaymentMethod": "Electronic check", "MonthlyCharges": 85.0, "TotalCharges": 425.0},
             {"gender": "Male", "SeniorCitizen": 1, "Partner": "No", "Dependents": "No", "tenure": 24, "PhoneService": "Yes", "MultipleLines": "Yes", "InternetService": "DSL", "OnlineSecurity": "Yes", "OnlineBackup": "Yes", "DeviceProtection": "Yes", "TechSupport": "Yes", "StreamingTV": "Yes", "StreamingMovies": "Yes", "Contract": "Two year", "PaperlessBilling": "No", "PaymentMethod": "Bank transfer (automatic)", "MonthlyCharges": 75.5, "TotalCharges": 1812.0},
@@ -404,21 +434,21 @@ if page == "📊 Dashboard":
 
 
 # ---------------------------------------------------------------------------
-# PAGE: Single customer prediction
+# PAGE: Single customer prediction & AI Assistant
 # ---------------------------------------------------------------------------
 elif page == "🧍 Single Customer":
     st.markdown(
         """
         <div class="hero">
-            <div class="hero-eyebrow">Live scoring</div>
+            <div class="hero-eyebrow">Live scoring & AI Copilot</div>
             <p class="hero-title">Single customer prediction</p>
-            <p class="hero-sub">Fill in the customer's profile to get an instant churn risk score.</p>
+            <p class="hero-sub">Fill in the customer's profile to get an instant churn risk score and consult the AI assistant.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    form_col, result_col = st.columns([1.3, 1])
+    form_col, result_col = st.columns([1.2, 1.1])
 
     with form_col:
         with st.form("single_prediction_form"):
@@ -430,7 +460,6 @@ elif page == "🧍 Single Customer":
                 dependents = st.selectbox("Has dependents", CATEGORICAL_OPTIONS["Dependents"])
                 contract = st.selectbox("Contract type", CATEGORICAL_OPTIONS["Contract"])
             with c2:
-                # Fixed slider type issue by converting boundaries to int
                 min_t = int(NUMERIC_RANGES["tenure"][0])
                 max_t = int(NUMERIC_RANGES["tenure"][1])
                 tenure = st.slider("Tenure (months)", min_value=min_t, max_value=max_t, value=12)
@@ -484,6 +513,18 @@ elif page == "🧍 Single Customer":
             }
             result = predictor.predict_one(record)
 
+            # Reset chat states upon a new prediction run
+            st.session_state.last_scored_customer = record
+            st.session_state.last_scored_prediction = result
+            st.session_state.last_response = None
+            st.session_state.last_query = None
+            if assistant:
+                assistant.clear_memory()
+
+        if st.session_state.last_scored_prediction is not None:
+            result = st.session_state.last_scored_prediction
+            record = st.session_state.last_scored_customer
+
             st.markdown('<div class="section-title">Result</div>', unsafe_allow_html=True)
             st.markdown(
                 f"""
@@ -500,31 +541,64 @@ elif page == "🧍 Single Customer":
             )
             st.markdown('<div class="section-title">Signal strength</div>', unsafe_allow_html=True)
             st.markdown(signal_bars_html(result["churn_probability"]), unsafe_allow_html=True)
-            st.caption("Fewer bars = weaker relationship signal = higher churn risk.")
 
-            reasons = []
-            if contract == "Month-to-month":
-                reasons.append("Month-to-month contract (highest-churn contract type)")
-            if tenure < 12:
-                reasons.append("Less than 12 months tenure (new customer)")
-            if internet == "Fiber optic":
-                reasons.append("Fiber optic internet (historically highest churn segment)")
-            if online_sec == "No" and internet != "No":
-                reasons.append("No online security add-on")
-            if tech_support == "No" and internet != "No":
-                reasons.append("No tech support add-on")
-            if payment == "Electronic check":
-                reasons.append("Pays by electronic check (highest-churn payment method)")
+            # --- AI CHATBOT INTEGRATION ---
+            st.markdown("---")
+            st.markdown('<div class="section-title">🤖 AI Churn Assistant</div>', unsafe_allow_html=True)
 
-            if reasons:
-                st.markdown('<div class="section-title">Contributing factors</div>', unsafe_allow_html=True)
-                for r in reasons:
-                    st.markdown(f"- {r}")
-                st.caption("Heuristic factors based on EDA patterns, not a live SHAP explanation.")
+            if not assistant:
+                st.warning("⚠️ AI Assistant is unavailable. Please check your `.env` configuration for `GEMINI_API_KEY`.")
+            else:
+                # Preset action buttons
+                action_cols = st.columns(4)
+                triggered_action = None
+
+                if action_cols[0].button("💡 Explain", use_container_width=True):
+                    triggered_action = (Action.EXPLAIN, "Explain why this customer is at risk.")
+                if action_cols[1].button("📋 Summary", use_container_width=True):
+                    triggered_action = (Action.SUMMARY, "Generate an executive summary.")
+                if action_cols[2].button("🛡️ Retention", use_container_width=True):
+                    triggered_action = (Action.RETENTION, "Suggest retention strategies.")
+                if action_cols[3].button("✉️ Draft Email", use_container_width=True):
+                    triggered_action = (Action.EMAIL, "Draft a personalized retention email.")
+
+                # Execute action if button was clicked
+                if triggered_action:
+                    act_type, prompt_label = triggered_action
+                    with st.spinner("Assistant thinking..."):
+                        response_text = assistant.ask(
+                            customer=record,
+                            prediction=result,
+                            question=prompt_label,
+                            action=act_type
+                        )
+                        st.session_state.last_query = prompt_label
+                        st.session_state.last_response = response_text
+
+                # Handle chat input text box
+                user_question = st.chat_input("Ask the AI assistant about this customer...")
+                if user_question:
+                    with st.spinner("Thinking..."):
+                        response_text = assistant.ask(
+                            customer=record,
+                            prediction=result,
+                            question=user_question,
+                            action=Action.FREE_CHAT
+                        )
+                        st.session_state.last_query = user_question
+                        st.session_state.last_response = response_text
+
+                # Display ONLY the latest output cleanly
+                if st.session_state.last_response:
+                    with st.chat_message("user"):
+                        st.markdown(st.session_state.last_query)
+                    with st.chat_message("assistant"):
+                        st.markdown(st.session_state.last_response)
+
         else:
             st.markdown(
                 '<div class="empty-state">Fill in the form and click '
-                '<b>Predict churn risk</b> to see the result here.</div>',
+                '<b>Predict churn risk</b> to see the prediction and consult the AI assistant.</div>',
                 unsafe_allow_html=True,
             )
 
